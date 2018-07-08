@@ -15,7 +15,7 @@ np.random.seed(400)
 tensor = torch.FloatTensor
 
 n_epochs = 500
-T = 200
+T = 1000
 batch_size = 100
 inp_size = 1
 hid_size = 128
@@ -60,21 +60,18 @@ def test_model(model, test_x, test_y, criterion):
 	h = torch.zeros(1, test_size, hid_size).to(device)
 	c = torch.zeros(1, test_size, hid_size).to(device)
 
+	prev = torch.zeros(128)
 	with torch.no_grad():	
 		for i in range(T + 20):
 			output, (h, c) = model(inp_x[i].unsqueeze(0), (h, c))
-			x1 = c[0][1].norm().item()
-			x2 = c[0][1].mean().item()
-			x3 = c[0][1].max().item()
-			x4 = c[0][1].min().item()
-			print(x1,x2,x3,x4)
-			'''
-			writer.add_scalar('/transfer-norm', x1, i)
-			writer.add_scalar('/transfer-mean', x2, i)
-			writer.add_scalar('/transfer-max', x3, i)
-			writer.add_scalar('/transfer-min', x4, i)
-			'''
-			#print(c[0][0])
+			if i == 0:
+				prev = c[0][0]
+			else:
+				num = torch.sum(c[0][0] * prev).item()
+				dem = (c[0][0].norm() * prev.norm()).item()
+				val = num / dem
+				print(val)
+				prev = c[0][0]
 			loss += criterion(output[0], inp_y[i].squeeze(1)).item()
 			if i >= T + 10:
 				preds = torch.argmax(output[0], dim=1)
@@ -90,7 +87,7 @@ def test_model(model, test_x, test_y, criterion):
 
 device = torch.device('cuda')
 net = Net(inp_size, hid_size, out_size).to(device)
-net.load_state_dict(torch.load('copy100trunc.pt'))
+net.load_state_dict(torch.load('copy100full.pt'))
 criterion = nn.CrossEntropyLoss()
 test_x, test_y = create_dataset(test_size, T)	
 test_x, test_y = test_x.to(device), test_y.to(device)

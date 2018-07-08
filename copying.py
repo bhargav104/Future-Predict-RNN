@@ -13,10 +13,11 @@ parser = argparse.ArgumentParser(description='auglang parameters')
 parser.add_argument('--full', action='store_true', default=False, help='Use full BPTT')
 parser.add_argument('--trunc', type=int, default=5, help='size of H truncations')
 parser.add_argument('--p-full', type=float, default=0.0, help='probability of opening bracket')
+parser.add_argument('--p-detach', type=float, default=1.0, help='probability of detaching each timestep')
 
 args = parser.parse_args()
 
-writer = SummaryWriter()
+#writer = SummaryWriter()
 
 torch.cuda.manual_seed(400)
 torch.manual_seed(400)
@@ -99,9 +100,9 @@ def train_model(model, epochs, criterion, optimizer):
 		print('epoch ' + str(epoch + 1))
 		epoch_loss = 0
 
-		if epoch % update_fq == update_fq - 1:
-			lr = lr / 2.0
-			optimizer.lr = lr
+		#if epoch % update_fq == update_fq - 1:
+		#	lr = lr / 2.0
+		#	optimizer.lr = lr
 
 		for z in range(train_size // batch_size):
 			ind = np.random.choice(train_size, batch_size)
@@ -118,7 +119,12 @@ def train_model(model, epochs, criterion, optimizer):
 			val = np.random.random(size=1)[0]
 			# 0.8 0.6 0.4 0.2
 			for i in range(sq_len):
-				
+				'''
+				if args.p_detach != 1.0:
+					rand_val = np.random.random(size=1)[0]
+					if rand_val <= args.p_detach:
+						h = h.detach()
+				'''	
 				if i % ktrunc == ktrunc - 1 and i != sq_len - 1 and not args.full and val >= p_full:
 					h = h.detach()
 				#	c = c.detach()
@@ -135,15 +141,15 @@ def train_model(model, epochs, criterion, optimizer):
 
 			loss_val = loss.item()	
 			print(z, loss_val)
-			writer.add_scalar('/300exp', loss_val, ctr)
+			#writer.add_scalar('/300change', loss_val, ctr)
 			ctr += 1
 
 		t_loss, accuracy = test_model(model, test_x, test_y, criterion)
 		if accuracy > best_acc:
 			best_acc = accuracy
-			#torch.save(model.state_dict(), 'copy100full.pt')
-		print('best accuracy ' + str(best_acc))
-		writer.add_scalar('/acc300exp', accuracy, epoch)
+			torch.save(model.state_dict(), 'copy100noforget.pt')
+			print('best accuracy ' + str(best_acc))
+		#writer.add_scalar('/acc300change', accuracy, epoch)
 
 device = torch.device('cuda')
 net = Net(inp_size, hid_size, out_size).to(device)
@@ -151,7 +157,7 @@ criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(net.parameters(), lr=lr)
 
 train_model(net, n_epochs, criterion, optimizer)
-writer.close()
+#writer.close()
 
 '''
 h c 
@@ -162,6 +168,7 @@ h c
 '''
 
 '''
-300 change - full, p_full = 0, 0.2, 0.4, 0.6, 0.8, 1
+300 change - p-full = 0, 0.2, 0.4, 0.6, 0.8, 1, no forget gate
+300 stoch - detach = 0.9, 0.75, 0.5, 0.25, 0.1
 300 exp - lr = 0.001schedule, lr = 0.001, lr = 0.0001. ktrunc = 3,5,10
 '''

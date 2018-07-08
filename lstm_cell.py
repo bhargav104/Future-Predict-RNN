@@ -30,6 +30,7 @@ class LSTM(nn.Module):
 		o_t = gates[:, -self.hidden_size:]
 
 		c_t = torch.mul(c, f_t) + torch.mul(i_t, g_t)
+		#c_t = c + torch.mul(i_t, g_t)
 		h_t = torch.mul(o_t, c_t.tanh())
 
 		return h_t, (h_t, c_t)
