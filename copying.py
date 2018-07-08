@@ -119,12 +119,11 @@ def train_model(model, epochs, criterion, optimizer):
 			val = np.random.random(size=1)[0]
 			# 0.8 0.6 0.4 0.2
 			for i in range(sq_len):
-				'''
 				if args.p_detach != 1.0:
 					rand_val = np.random.random(size=1)[0]
 					if rand_val <= args.p_detach:
 						h = h.detach()
-				'''	
+
 				if i % ktrunc == ktrunc - 1 and i != sq_len - 1 and not args.full and val >= p_full:
 					h = h.detach()
 				#	c = c.detach()

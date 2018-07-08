@@ -88,6 +88,10 @@ def train_model(model, epochs, criterion, optimizer):
 	best_acc = 0.0
 	ctr = 0	
 	global lr
+	if args.permute:
+		order = np.random.permutation(T)
+	else:
+		order = np.arange(T)
 	for epoch in range(epochs):
 		print('epoch ' + str(epoch + 1))
 		epoch_loss = 0
@@ -95,11 +99,6 @@ def train_model(model, epochs, criterion, optimizer):
 		#if epoch % update_fq == update_fq - 1:
 		#	lr = lr / 2.0
 		#	optimizer.lr = lr
-		if args.permute:
-			order = np.random.permutation(T)
-		else:
-			order = np.arange(T)
-
 		for z, data in enumerate(trainloader, 0):
 			inp_x, inp_y = data
 			inp_x = inp_x.view(-1, 28*28, 1)
