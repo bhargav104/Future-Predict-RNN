@@ -5,6 +5,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from lstm_cell import LSTM
 from generator import generate_copying_sequence
 from tensorboardX import SummaryWriter
 
@@ -15,7 +16,7 @@ np.random.seed(400)
 tensor = torch.FloatTensor
 
 n_epochs = 500
-T = 1000
+T = 2000
 batch_size = 100
 inp_size = 1
 hid_size = 128
@@ -44,7 +45,7 @@ class Net(nn.Module):
 	
 	def __init__(self, inp_size, hid_size, out_size):
 		super().__init__()
-		self.lstm = nn.LSTM(inp_size, hid_size)
+		self.lstm = LSTM(inp_size, hid_size)
 		self.fc1 = nn.Linear(hid_size, out_size)
 
 	def forward(self, x, state):
@@ -57,24 +58,17 @@ def test_model(model, test_x, test_y, criterion):
 	accuracy = 0
 	inp_x = torch.t(test_x)
 	inp_y = torch.t(test_y)
-	h = torch.zeros(1, test_size, hid_size).to(device)
-	c = torch.zeros(1, test_size, hid_size).to(device)
+	h = torch.zeros(test_size, hid_size).to(device)
+	c = torch.zeros(test_size, hid_size).to(device)
 
 	prev = torch.zeros(128)
 	with torch.no_grad():	
 		for i in range(T + 20):
-			output, (h, c) = model(inp_x[i].unsqueeze(0), (h, c))
-			if i == 0:
-				prev = c[0][0]
-			else:
-				num = torch.sum(c[0][0] * prev).item()
-				dem = (c[0][0].norm() * prev.norm()).item()
-				val = num / dem
-				print(val)
-				prev = c[0][0]
-			loss += criterion(output[0], inp_y[i].squeeze(1)).item()
+			output, (h, c) = model(inp_x[i], (h, c))
+			print(c[0][0].norm().item())
+			loss += criterion(output, inp_y[i].squeeze(1)).item()
 			if i >= T + 10:
-				preds = torch.argmax(output[0], dim=1)
+				preds = torch.argmax(output, dim=1)
 				actual = inp_y[i].squeeze(1)
 				correct = preds == actual
 				accuracy += correct.sum().item()
@@ -87,7 +81,7 @@ def test_model(model, test_x, test_y, criterion):
 
 device = torch.device('cuda')
 net = Net(inp_size, hid_size, out_size).to(device)
-net.load_state_dict(torch.load('copy100full.pt'))
+net.load_state_dict(torch.load('copy100noforget.pt'))
 criterion = nn.CrossEntropyLoss()
 test_x, test_y = create_dataset(test_size, T)	
 test_x, test_y = test_x.to(device), test_y.to(device)

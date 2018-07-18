@@ -14,6 +14,7 @@ class LSTM(nn.Module):
 		self.h2h = nn.Linear(hidden_size, 4 * hidden_size)
 		self.reset_parameters()
 
+
 	def reset_parameters(self):
 		stdv = 1.0 / math.sqrt(self.hidden_size)
 		for weight in self.parameters():

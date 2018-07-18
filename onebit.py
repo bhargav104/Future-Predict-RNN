@@ -5,6 +5,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from lstm_cell import LSTM
 from generator import generate_onebit_sequence
 from tensorboardX import SummaryWriter
 
@@ -16,7 +17,6 @@ tensor = torch.FloatTensor
 
 n_epochs = 1000
 T = 100
-n_layers = 3
 batch_size = 100
 inp_size = 1
 hid_size = 1
@@ -43,16 +43,11 @@ def create_dataset(size, T):
 
 class Net(nn.Module):
 	
-	def __init__(self, inp_size, hid_size, out_size, n_layers):
+	def __init__(self, inp_size, hid_size, out_size):
 		super().__init__()
-		self.temp = torch.uniform(4, 5)
+		self.lstm = LSTM(inp_size, hid_size)
 		self.fc1 = nn.Linear(hid_size, out_size)
-		for (name, layer) in self.lstm.named_parameters():
-			if not 'lstm.bias' in name:
-				continue
-			name[hid_size: 2*hid_size] = torch.log(torch.nn.init.uniform_(layer.data[0: hid_size], 1, T-1))
-			layer.data[0: hid_size] = -layer.data[hid_size: 2*hid_size]
-
+	
 	def forward(self, x, state):
 		x, new_state = self.lstm(x, state)
 		x = self.fc1(x)
@@ -63,12 +58,12 @@ def test_model(model, test_x, test_y, criterion):
 	accuracy = 0
 	inp_x = torch.t(test_x)
 	inp_y = torch.t(test_y)
-	h = torch.zeros(n_layers, test_size, hid_size).to(device)
-	c = torch.zeros(n_layers, test_size, hid_size).to(device)
+	h = torch.zeros(test_size, hid_size).to(device)
+	c = torch.zeros(test_size, hid_size).to(device)
 		
 	for i in range(T):
-		output, (h, c) = model(inp_x[i].unsqueeze(0), (h, c))
-	loss += criterion(output[0], inp_y.t()).item()
+		output, (h, c) = model(inp_x[i], (h, c))
+	loss += criterion(output, inp_y.t()).item()
 	'''
 	preds = torch.argmax(output[0], dim=1)
 	actual = inp_y.t()
@@ -102,8 +97,8 @@ def train_model(model, epochs, criterion, optimizer):
 			inp_x, inp_y = train_x[ind], train_y[ind]
 			inp_x.transpose_(0, 1)
 			inp_y.transpose_(0, 1)
-			h = torch.zeros(n_layers, batch_size, hid_size).to(device)
-			c = torch.zeros(n_layers, batch_size, hid_size).to(device)
+			h = torch.zeros(batch_size, hid_size).to(device)
+			c = torch.zeros(batch_size, hid_size).to(device)
 				
 			sq_len = T
 			loss = 0
@@ -116,8 +111,9 @@ def train_model(model, epochs, criterion, optimizer):
 				#	h = h.detach()
 				#	c = c.detach()
 
-				output, (h, c) = model(inp_x[i].unsqueeze(0), (h, c))
-			loss += criterion(output[0], inp_y.t())
+				output, (h, c) = model(inp_x[i], (h, c))
+
+			loss += criterion(output, inp_y.t())
 
 			model.zero_grad()
 			loss.backward()
@@ -141,5 +137,5 @@ net = Net(inp_size, hid_size, out_size).to(device)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(net.parameters(), lr=lr)
 
-#train_model(net, n_epochs, criterion, optimizer)
+train_model(net, n_epochs, criterion, optimizer)
 #writer.close()

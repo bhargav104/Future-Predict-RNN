@@ -14,10 +14,11 @@ parser.add_argument('--full', action='store_true', default=False, help='Use full
 parser.add_argument('--trunc', type=int, default=5, help='size of H truncations')
 parser.add_argument('--p-full', type=float, default=0.0, help='probability of opening bracket')
 parser.add_argument('--p-detach', type=float, default=1.0, help='probability of detaching each timestep')
+parser.add_argument('--lstm-size', type=int, default=128, help='hidden size of LSTM')
 
 args = parser.parse_args()
 
-#writer = SummaryWriter()
+writer = SummaryWriter()
 
 torch.cuda.manual_seed(400)
 torch.manual_seed(400)
@@ -28,7 +29,7 @@ n_epochs = 600
 T = 300
 batch_size = 100
 inp_size = 1
-hid_size = 128
+hid_size = args.lstm_size
 out_size = 9
 lr = 0.001
 train_size = 100000
@@ -70,14 +71,15 @@ def test_model(model, test_x, test_y, criterion):
 	h = torch.zeros(test_size, hid_size).to(device)
 	c = torch.zeros(test_size, hid_size).to(device)
 		
-	for i in range(T + 20):
-		output, (h, c) = model(inp_x[i], (h, c))
-		loss += criterion(output, inp_y[i].squeeze(1)).item()
-		if i >= T + 10:
-			preds = torch.argmax(output, dim=1)
-			actual = inp_y[i].squeeze(1)
-			correct = preds == actual
-			accuracy += correct.sum().item()
+	with torch.no_grad():
+		for i in range(T + 20):
+			output, (h, c) = model(inp_x[i], (h, c))
+			loss += criterion(output, inp_y[i].squeeze(1)).item()
+			if i >= T + 10:
+				preds = torch.argmax(output, dim=1)
+				actual = inp_y[i].squeeze(1)
+				correct = preds == actual
+				accuracy += correct.sum().item()
 
 	loss /= (T + 20.0)
 	accuracy /= (500.0)
@@ -140,15 +142,15 @@ def train_model(model, epochs, criterion, optimizer):
 
 			loss_val = loss.item()	
 			print(z, loss_val)
-			#writer.add_scalar('/300change', loss_val, ctr)
+			writer.add_scalar('/300full', loss_val, ctr)
 			ctr += 1
 
 		t_loss, accuracy = test_model(model, test_x, test_y, criterion)
 		if accuracy > best_acc:
 			best_acc = accuracy
-			torch.save(model.state_dict(), 'copy100noforget.pt')
+			#torch.save(model.state_dict(), 'copy100noforget.pt')
 			print('best accuracy ' + str(best_acc))
-		#writer.add_scalar('/acc300change', accuracy, epoch)
+		writer.add_scalar('/acc300full', accuracy, epoch)
 
 device = torch.device('cuda')
 net = Net(inp_size, hid_size, out_size).to(device)
@@ -170,4 +172,6 @@ h c
 300 change - p-full = 0, 0.2, 0.4, 0.6, 0.8, 1, no forget gate
 300 stoch - detach = 0.9, 0.75, 0.5, 0.25, 0.1
 300 exp - lr = 0.001schedule, lr = 0.001, lr = 0.0001. ktrunc = 3,5,10
+300 size - full, p-detach = 0.25. 64, 128, 256, 512
+300 full - full data - full, 0.5. batch - full, 0.5
 '''
