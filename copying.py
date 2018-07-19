@@ -15,6 +15,7 @@ parser.add_argument('--trunc', type=int, default=5, help='size of H truncations'
 parser.add_argument('--p-full', type=float, default=0.0, help='probability of opening bracket')
 parser.add_argument('--p-detach', type=float, default=1.0, help='probability of detaching each timestep')
 parser.add_argument('--lstm-size', type=int, default=128, help='hidden size of LSTM')
+parser.add_argument('--noise', type=float, default=0.0, help='make the gradient noisy')
 
 args = parser.parse_args()
 
@@ -137,12 +138,19 @@ def train_model(model, epochs, criterion, optimizer):
 
 			model.zero_grad()
 			loss.backward()
-			nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+			norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+			writer.add_scalar('/300norms', norm.item(), ctr)
+			if args.noise != 0.0:
+				for param in model.parameters():
+					vals = param.data
+					noise = torch.normal(mean=torch.zeros(vals.size()), std=torch.ones(vals.size()) * args.noise).to(device)
+					param.data.copy_(vals + noise)
+
 			optimizer.step()
 
 			loss_val = loss.item()	
 			print(z, loss_val)
-			writer.add_scalar('/300full', loss_val, ctr)
+			writer.add_scalar('/300normsloss', loss_val, ctr)
 			ctr += 1
 
 		t_loss, accuracy = test_model(model, test_x, test_y, criterion)
@@ -150,7 +158,7 @@ def train_model(model, epochs, criterion, optimizer):
 			best_acc = accuracy
 			#torch.save(model.state_dict(), 'copy100noforget.pt')
 			print('best accuracy ' + str(best_acc))
-		writer.add_scalar('/acc300full', accuracy, epoch)
+		#writer.add_scalar('/acc300noise', accuracy, epoch)
 
 device = torch.device('cuda')
 net = Net(inp_size, hid_size, out_size).to(device)
@@ -174,4 +182,5 @@ h c
 300 exp - lr = 0.001schedule, lr = 0.001, lr = 0.0001. ktrunc = 3,5,10
 300 size - full, p-detach = 0.25. 64, 128, 256, 512
 300 full - full data - full, 0.5. batch - full, 0.5
+300 noise - full, p-detach=0.5, 0.25. noise = 0.001, 0.0025, 0.0005, 0.0001, 0.005
 '''

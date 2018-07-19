@@ -201,5 +201,5 @@ train_model(encoder, decoder)
 '''
 EncoderTest - with cell, no cell. lr = 0.001, 0.0001. p-detach = 0.9, 0.75, 0.5, 0.25, 0.1, 0.4, 0.05
 lr = 0.001 best = full - 3.341, p-detach=0.5 - 3.268
-lr = 0.0001 best = full - 3.208, p-detach=
+lr = 0.0001 best = full - 3.208, p-detach=0.9 - 3.023
 '''
