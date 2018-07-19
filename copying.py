@@ -52,7 +52,7 @@ def create_dataset(size, T):
 
 
 class Net(nn.Module):
-	
+
 	def __init__(self, inp_size, hid_size, out_size):
 		super().__init__()
 		self.lstm = LSTM(inp_size, hid_size)
@@ -61,7 +61,7 @@ class Net(nn.Module):
 	def forward(self, x, state):
 		x, new_state = self.lstm(x, state)
 		x = self.fc1(x)
-		return x, new_state	
+		return x, new_state
 
 def test_model(model, test_x, test_y, criterion):
 	loss = 0
@@ -70,7 +70,7 @@ def test_model(model, test_x, test_y, criterion):
 	inp_y = torch.t(test_y)
 	h = torch.zeros(test_size, hid_size).to(device)
 	c = torch.zeros(test_size, hid_size).to(device)
-		
+
 	with torch.no_grad():
 		for i in range(T + 20):
 			output, (h, c) = model(inp_x[i], (h, c))
@@ -96,7 +96,7 @@ def train_model(model, epochs, criterion, optimizer):
 	train_x, train_y = train_x.to(device), train_y.to(device)
 	test_x, test_y = test_x.to(device), test_y.to(device)
 	best_acc = 0.0
-	ctr = 0	
+	ctr = 0
 	global lr
 	for epoch in range(epochs):
 		print('epoch ' + str(epoch + 1))
@@ -113,7 +113,7 @@ def train_model(model, epochs, criterion, optimizer):
 			inp_y.transpose_(0, 1)
 			h = torch.zeros(batch_size, hid_size).to(device)
 			c = torch.zeros(batch_size, hid_size).to(device)
-				
+
 			sq_len = T + 20
 			loss = 0
 
@@ -138,9 +138,21 @@ def train_model(model, epochs, criterion, optimizer):
 			model.zero_grad()
 			loss.backward()
 			nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+
+			## computing vHv
+			update_grad = []
+			for variable in model.parameters():
+				update_grad.append(variable.grad.data.clone())
+			direc = torch.cat([m.view(-1) for m in update_grad]).cpu().numpy()
+			direc = Variable(torch.from_numpy(direc.astype("float32") ).cuda() )
+			vHv_val = get_vHv(model, update_grad, dataset, train_size, batch_size, args, criterion)
+
+			## computing vHv
+
 			optimizer.step()
 
-			loss_val = loss.item()	
+			loss_val = loss.item()
 			print(z, loss_val)
 			writer.add_scalar('/300full', loss_val, ctr)
 			ctr += 1
@@ -161,7 +173,7 @@ train_model(net, n_epochs, criterion, optimizer)
 #writer.close()
 
 '''
-h c 
+h c
 0 0
 1 0
 0 1
