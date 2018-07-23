@@ -139,29 +139,31 @@ def train_model(model, model_1, epochs, criterion, optimizer):
 					rand_val = np.random.random(size=1)[0]
 					if rand_val <= args.p_detach:
 						h = h.detach()
-
+					#else:
+					#	c = c.detach()
+				'''
 				if i % ktrunc == ktrunc - 1 and i != sq_len - 1 and not args.full and val >= p_full:
 					h = h.detach()
 				#	c = c.detach()
-
+				'''
 				output, (h, c) = model(inp_x[i], (h, c))
 				loss += criterion(output, inp_y[i].squeeze(1))
 
 			loss /= (1.0 * sq_len)
-			if z != 0:
-				old_grads = get_flat_grads(model)
+			#if z != 0:
+			#	old_grads = get_flat_grads(model)
 			model.zero_grad()
 			loss.backward()
 			norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 			#writer.add_scalar('/300norms', norm.item(), ctr)
-			new_grads = get_flat_grads(model)
-
+			#new_grads = get_flat_grads(model)
+			'''
 			if z != 0:
 				num = (old_grads * new_grads).sum() / ((torch.norm(old_grads) * torch.norm(new_grads)) + 1e-7)
 				writer.add_scalar('/300direc', num.item(), dc)
 				#f.write(str(num.item()) + '\n')
 				dc += 1
-
+			'''
 			if args.noise != 0.0:
 				for param in model.parameters():
 					vals = param.data
@@ -220,4 +222,5 @@ h c
 300 size - full, p-detach = 0.25. 64, 128, 256, 512
 300 full - full data - full, 0.5. batch - full, 0.5
 300 noise - full, p-detach=0.5, 0.25. noise = 0.001, 0.0025, 0.0005, 0.0001, 0.005
+300 direcloss - full, 0.5, new 0.5, half-half, new 0.5
 '''
