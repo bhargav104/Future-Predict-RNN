@@ -9,6 +9,8 @@ import torch.optim as optim
 from generator import generate_copying_sequence
 from tensorboardX import SummaryWriter
 import argparse
+from torch.autograd import Variable
+from vHv import get_vHv
 parser = argparse.ArgumentParser(description='auglang parameters')
 parser.add_argument('--full', action='store_true', default=False, help='Use full BPTT')
 parser.add_argument('--trunc', type=int, default=5, help='size of H truncations')
@@ -37,6 +39,10 @@ train_size = 100000
 test_size = 5000
 update_fq = 50
 ktrunc = args.trunc
+
+def hard_update(target, source):
+	for target_param, param in zip(target.parameters(), source.parameters()):
+		target_param.data.copy_(param.data)
 
 def create_dataset(size, T):
 	d_x = []
@@ -88,9 +94,14 @@ def test_model(model, test_x, test_y, criterion):
 	print('test loss ' + str(loss) + ' accuracy ' + str(accuracy))
 	return loss, accuracy
 
+def get_flat_grads(model):
+	ret = []
+	for param in model.parameters():
+		ret.append(param.grad.data.view(-1))
+	ret = torch.cat(ret, dim=0)
+	return ret
 
-
-def train_model(model, epochs, criterion, optimizer):
+def train_model(model, model_1, epochs, criterion, optimizer):
 
 	train_x, train_y = create_dataset(train_size, T)
 	test_x, test_y = create_dataset(test_size, T)
@@ -99,6 +110,8 @@ def train_model(model, epochs, criterion, optimizer):
 	best_acc = 0.0
 	ctr = 0
 	global lr
+	dc = 0
+	#f = open('angle-0.5.txt', 'w')
 	for epoch in range(epochs):
 		print('epoch ' + str(epoch + 1))
 		epoch_loss = 0
@@ -135,32 +148,45 @@ def train_model(model, epochs, criterion, optimizer):
 				loss += criterion(output, inp_y[i].squeeze(1))
 
 			loss /= (1.0 * sq_len)
-
+			if z != 0:
+				old_grads = get_flat_grads(model)
 			model.zero_grad()
 			loss.backward()
 			norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-			writer.add_scalar('/300norms', norm.item(), ctr)
+			#writer.add_scalar('/300norms', norm.item(), ctr)
+			new_grads = get_flat_grads(model)
+
+			if z != 0:
+				num = (old_grads * new_grads).sum() / ((torch.norm(old_grads) * torch.norm(new_grads)) + 1e-7)
+				writer.add_scalar('/300direc', num.item(), dc)
+				#f.write(str(num.item()) + '\n')
+				dc += 1
+
 			if args.noise != 0.0:
 				for param in model.parameters():
 					vals = param.data
 					noise = torch.normal(mean=torch.zeros(vals.size()), std=torch.ones(vals.size()) * args.noise).to(device)
 					param.data.copy_(vals + noise)
 
-
+			'''
 			## computing vHv
-			update_grad = []
-			for variable in model.parameters():
-				update_grad.append(variable.grad.data.clone())
-			direc = torch.cat([m.view(-1) for m in update_grad]).cpu().numpy()
-			direc = Variable(torch.from_numpy(direc.astype("float32") ).cuda() )
-			vHv_val = get_vHv(model, update_grad, dataset, train_size, batch_size, args, criterion)
-
+			if z == 999:
+				hard_update(model_1, model)
+				update_grad = []
+				for variable in model.parameters():
+					update_grad.append(variable.grad.data.clone())
+				direc = torch.cat([m.view(-1) for m in update_grad]).cpu().numpy()
+				direc = Variable(torch.from_numpy(direc.astype("float32") ).cuda() )
+				vHv_val = get_vHv(model_1, direc, (train_x, train_y), train_size, batch_size, args, criterion, T)
+				print('vhv', vHv_val)
+				writer.add_scalar('/300vhv', vHv_val, epoch)
 			## computing vHv
+			'''
 			optimizer.step()
 
 			loss_val = loss.item()
 			print(z, loss_val)
-			writer.add_scalar('/300normsloss', loss_val, ctr)
+			writer.add_scalar('/300direcloss', loss_val, ctr)
 			ctr += 1
 
 		t_loss, accuracy = test_model(model, test_x, test_y, criterion)
@@ -172,10 +198,11 @@ def train_model(model, epochs, criterion, optimizer):
 
 device = torch.device('cuda')
 net = Net(inp_size, hid_size, out_size).to(device)
+net_1 = Net(inp_size, hid_size, out_size).to(device)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(net.parameters(), lr=lr)
 
-train_model(net, n_epochs, criterion, optimizer)
+train_model(net, net_1, n_epochs, criterion, optimizer)
 #writer.close()
 
 '''
