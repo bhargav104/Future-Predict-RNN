@@ -11,17 +11,30 @@ from tensorboardX import SummaryWriter
 import argparse
 from torch.autograd import Variable
 from vHv import get_vHv
+import os
+import glob
+import tqdm 
 parser = argparse.ArgumentParser(description='auglang parameters')
 parser.add_argument('--full', action='store_true', default=False, help='Use full BPTT')
 parser.add_argument('--trunc', type=int, default=5, help='size of H truncations')
-parser.add_argument('--p-full', type=float, default=0.0, help='probability of opening bracket')
 parser.add_argument('--p-detach', type=float, default=1.0, help='probability of detaching each timestep')
 parser.add_argument('--lstm-size', type=int, default=128, help='hidden size of LSTM')
 parser.add_argument('--noise', type=float, default=0.0, help='make the gradient noisy')
+parser.add_argument('--gHg', type=bool, default=False, help='track gHg during training')
+parser.add_argument('--save-dir', type=str, default='default', help='save dir of the results')
 
 args = parser.parse_args()
+log_dir = '/u/arpitdev/results/RNN_stocbp/'+args.save_dir + '/'
 
-writer = SummaryWriter()
+if os.path.isdir(log_dir):
+	print('deleting contents of experiment directory')
+	for f in glob.glob(log_dir+'*'):
+		print(f)
+		os.remove(f)
+
+writer = SummaryWriter(log_dir=log_dir)
+
+#writer = SummaryWriter()
 
 torch.cuda.manual_seed(400)
 torch.manual_seed(400)
@@ -73,8 +86,8 @@ class Net(nn.Module):
 def test_model(model, test_x, test_y, criterion):
 	loss = 0
 	accuracy = 0
-	inp_x = torch.t(test_x)
-	inp_y = torch.t(test_y)
+	inp_x= torch.transpose(test_x, 0,1)
+	inp_y = torch.transpose(test_y, 0,1)
 	h = torch.zeros(test_size, hid_size).to(device)
 	c = torch.zeros(test_size, hid_size).to(device)
 
@@ -101,6 +114,35 @@ def get_flat_grads(model):
 	ret = torch.cat(ret, dim=0)
 	return ret
 
+def vHv_fn(model, model_1, data, train_size, batch_size, criterion, T):
+	(train_x, train_y) = data
+	hard_update(model_1, model)
+	update_grad = []
+	for variable in model.parameters():
+		update_grad.append(variable.grad.data.clone())
+	direc = torch.cat([m.view(-1) for m in update_grad]).cpu().numpy()
+	direc /= np.linalg.norm(direc)
+	direc = Variable(torch.from_numpy(direc.astype("float32") ).cuda() )
+	vHv_val = get_vHv(model_1, direc, (train_x, train_y), train_size, batch_size, args, criterion, T)
+	return vHv_val
+
+def forwardprop(model, inp_x, inp_y, h, c, p_detach):
+	sq_len = T + 20
+	loss = 0
+
+	val = np.random.random(size=1)[0]
+	# 0.8 0.6 0.4 0.2
+	for i in range(sq_len):
+		if p_detach != 1.0:
+			rand_val = np.random.random(size=1)[0]
+			if rand_val <= p_detach:
+				h = h.detach()
+		output, (h, c) = model(inp_x[i], (h, c))
+		loss += criterion(output, inp_y[i].squeeze(1))
+
+	loss /= (1.0 * sq_len)
+	return loss
+
 def train_model(model, model_1, epochs, criterion, optimizer):
 
 	train_x, train_y = create_dataset(train_size, T)
@@ -111,16 +153,12 @@ def train_model(model, model_1, epochs, criterion, optimizer):
 	ctr = 0
 	global lr
 	dc = 0
-	#f = open('angle-0.5.txt', 'w')
+
 	for epoch in range(epochs):
 		print('epoch ' + str(epoch + 1))
 		epoch_loss = 0
-
-		#if epoch % update_fq == update_fq - 1:
-		#	lr = lr / 2.0
-		#	optimizer.lr = lr
-
-		for z in range(train_size // batch_size):
+		gHg_list = []
+		for z in tqdm.tqdm(range(train_size // batch_size), total=train_size // batch_size):
 			ind = np.random.choice(train_size, batch_size)
 			inp_x, inp_y = train_x[ind], train_y[ind]
 			inp_x.transpose_(0, 1)
@@ -128,75 +166,44 @@ def train_model(model, model_1, epochs, criterion, optimizer):
 			h = torch.zeros(batch_size, hid_size).to(device)
 			c = torch.zeros(batch_size, hid_size).to(device)
 
-			sq_len = T + 20
-			loss = 0
-
-			p_full = args.p_full
-			val = np.random.random(size=1)[0]
-			# 0.8 0.6 0.4 0.2
-			for i in range(sq_len):
-				if args.p_detach != 1.0:
-					rand_val = np.random.random(size=1)[0]
-					if rand_val <= args.p_detach:
-						h = h.detach()
-					#else:
-					#	c = c.detach()
-				'''
-				if i % ktrunc == ktrunc - 1 and i != sq_len - 1 and not args.full and val >= p_full:
-					h = h.detach()
-				#	c = c.detach()
-				'''
-				output, (h, c) = model(inp_x[i], (h, c))
-				loss += criterion(output, inp_y[i].squeeze(1))
-
-			loss /= (1.0 * sq_len)
-			#if z != 0:
-			#	old_grads = get_flat_grads(model)
+			loss = forwardprop(model, inp_x, inp_y, h, c, p_detach=args.p_detach)
 			model.zero_grad()
 			loss.backward()
 			norm = nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+			if args.gHg:
+				if 1<=z<=5 or 498<=z<=502 or 996<=z<=1000: # #or 248<=z<=252 or 748<=z<=752 
+					vHv_val = vHv_fn(model, model_1, (train_x, train_y), train_size, batch_size, criterion, T)
+					gHg_list.append(vHv_val)
+					print('ghg: {}'.format(vHv_val))
+					writer.add_scalar('/gHg', vHv_val, ctr)
+
+			
 			#writer.add_scalar('/300norms', norm.item(), ctr)
 			#new_grads = get_flat_grads(model)
-			'''
-			if z != 0:
-				num = (old_grads * new_grads).sum() / ((torch.norm(old_grads) * torch.norm(new_grads)) + 1e-7)
-				writer.add_scalar('/300direc', num.item(), dc)
-				#f.write(str(num.item()) + '\n')
-				dc += 1
-			'''
+
 			if args.noise != 0.0:
 				for param in model.parameters():
 					vals = param.data
 					noise = torch.normal(mean=torch.zeros(vals.size()), std=torch.ones(vals.size()) * args.noise).to(device)
 					param.data.copy_(vals + noise)
 
-			'''
-			## computing vHv
-			if z == 999:
-				hard_update(model_1, model)
-				update_grad = []
-				for variable in model.parameters():
-					update_grad.append(variable.grad.data.clone())
-				direc = torch.cat([m.view(-1) for m in update_grad]).cpu().numpy()
-				direc = Variable(torch.from_numpy(direc.astype("float32") ).cuda() )
-				vHv_val = get_vHv(model_1, direc, (train_x, train_y), train_size, batch_size, args, criterion, T)
-				print('vhv', vHv_val)
-				writer.add_scalar('/300vhv', vHv_val, epoch)
-			## computing vHv
-			'''
+
 			optimizer.step()
 
 			loss_val = loss.item()
-			print(z, loss_val)
-			writer.add_scalar('/300direcloss', loss_val, ctr)
+			# print(z, loss_val)
+			writer.add_scalar('/loss', loss_val, ctr)
 			ctr += 1
+
+
 
 		t_loss, accuracy = test_model(model, test_x, test_y, criterion)
 		if accuracy > best_acc:
 			best_acc = accuracy
 			#torch.save(model.state_dict(), 'copy100noforget.pt')
 			print('best accuracy ' + str(best_acc))
-		#writer.add_scalar('/acc300noise', accuracy, epoch)
+		writer.add_scalar('/acc', accuracy, epoch)
 
 device = torch.device('cuda')
 net = Net(inp_size, hid_size, out_size).to(device)

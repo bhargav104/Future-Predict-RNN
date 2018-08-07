@@ -4,7 +4,7 @@ import tqdm
 import numpy as np
 device = torch.device('cuda')
 def get_vHv(model, direc, dataset, train_size, batch_size, args, criterion, T, N=1, M=15, seed=777):
-
+    
     model.train()
     v = direc # Variable(torch.from_numpy( direc.astype("float32")).cuda())
     hid_size = args.lstm_size
