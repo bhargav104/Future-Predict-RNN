@@ -24,7 +24,7 @@ parser.add_argument('--gHg', type=bool, default=False, help='track gHg during tr
 parser.add_argument('--save-dir', type=str, default='default', help='save dir of the results')
 
 args = parser.parse_args()
-log_dir = '/u/arpitdev/results/RNN_stocbp/'+args.save_dir + '/'
+log_dir = 'exp/300ghg/'+args.save_dir + '/'
 
 if os.path.isdir(log_dir):
 	print('deleting contents of experiment directory')
@@ -133,7 +133,7 @@ def forwardprop(model, inp_x, inp_y, h, c, p_detach):
 	val = np.random.random(size=1)[0]
 	# 0.8 0.6 0.4 0.2
 	for i in range(sq_len):
-		if p_detach != 1.0:
+		if p_detach != 1.0 and not args.full:
 			rand_val = np.random.random(size=1)[0]
 			if rand_val <= p_detach:
 				h = h.detach()
@@ -153,7 +153,7 @@ def train_model(model, model_1, epochs, criterion, optimizer):
 	ctr = 0
 	global lr
 	dc = 0
-
+	gc = 0
 	for epoch in range(epochs):
 		print('epoch ' + str(epoch + 1))
 		epoch_loss = 0
@@ -176,7 +176,8 @@ def train_model(model, model_1, epochs, criterion, optimizer):
 					vHv_val = vHv_fn(model, model_1, (train_x, train_y), train_size, batch_size, criterion, T)
 					gHg_list.append(vHv_val)
 					print('ghg: {}'.format(vHv_val))
-					writer.add_scalar('/gHg', vHv_val, ctr)
+					writer.add_scalar('/300gHgval', vHv_val, gc)
+					gc += 1
 
 			
 			#writer.add_scalar('/300norms', norm.item(), ctr)
@@ -193,7 +194,7 @@ def train_model(model, model_1, epochs, criterion, optimizer):
 
 			loss_val = loss.item()
 			# print(z, loss_val)
-			writer.add_scalar('/loss', loss_val, ctr)
+			writer.add_scalar('/300ghgloss', loss_val, ctr)
 			ctr += 1
 
 

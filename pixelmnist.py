@@ -10,16 +10,30 @@ from generator import generate_copying_sequence
 from tensorboardX import SummaryWriter
 import torchvision as T
 import argparse
+import os
+import glob
 parser = argparse.ArgumentParser(description='sequential MNIST parameters')
 parser.add_argument('--full', action='store_true', default=False, help='Use full BPTT')
 parser.add_argument('--trunc', type=int, default=5, help='size of H truncations')
 parser.add_argument('--p-full', type=float, default=0.0, help='probability of opening bracket')
 parser.add_argument('--p-detach', type=float, default=1.0, help='probability of detaching each timestep')
 parser.add_argument('--permute', action='store_true', default=False, help='pMNIST or normal MNIST')
+parser.add_argument('--save-dir', type=str, default='default', help='save directory')
+parser.add_argument('--cos', action='store_true', default=False, help='print cosine between consecutive updates')
+parser.add_argument('--norms', action='store_true', default=False, help='Print gradient norms')
+parser.add_argument('--ghg', action='store_true', default=False, help='print ghg values')
+parser.add_argument('--lstm-size', type=int, default=100, help='width of LSTM')
 
 args = parser.parse_args()
 
-writer = SummaryWriter()
+log_dir = 'exp/mnist/'+args.save_dir + '/'
+if os.path.isdir(log_dir):
+	print('deleting contents of experiment directory')
+	for f in glob.glob(log_dir+'*'):
+		print(f)
+		os.remove(f)
+
+writer = SummaryWriter(log_dir=log_dir)
 
 torch.manual_seed(100)
 np.random.seed(100)
@@ -34,7 +48,7 @@ n_epochs = 200
 T = 784
 batch_size = 100
 inp_size = 1
-hid_size = 100
+hid_size = args.lstm_size
 out_size = 10
 lr = 0.001
 train_size = 50000
@@ -81,7 +95,12 @@ def test_model(model, criterion, order):
 	print('test loss ' + str(loss) + ' accuracy ' + str(accuracy))
 	return loss, accuracy
 
-
+def get_flat_grads(model):
+	ret = []
+	for param in model.parameters():
+		ret.append(param.grad.data.view(-1))
+	ret = torch.cat(ret, dim=0)
+	return ret
 
 def train_model(model, epochs, criterion, optimizer):
 
@@ -92,6 +111,11 @@ def train_model(model, epochs, criterion, optimizer):
 		order = np.random.permutation(T)
 	else:
 		order = np.arange(T)
+	
+	cc = 0
+	nc = 0
+	old_grads = None
+	
 	for epoch in range(epochs):
 		print('epoch ' + str(epoch + 1))
 		epoch_loss = 0
@@ -110,32 +134,43 @@ def train_model(model, epochs, criterion, optimizer):
 			loss = 0
 
 			for i in order:
-
-				if args.p_detach != 1.0:
+				if args.p_detach != 1.0 and not args.full:
 					val = np.random.random(size=1)[0]
 					if val <= args.p_detach:
 						h = h.detach()
-				elif i % ktrunc == ktrunc - 1 and i != sq_len - 1 and not args.full:
-					h = h.detach()
-					c = c.detach()
 				output, (h, c) = model(inp_x[i], (h, c))
 			
 			loss += criterion(output, inp_y)
 
 			model.zero_grad()
 			loss.backward()
-			nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+			norms = nn.utils.clip_grad_norm_(model.parameters(), 1.0).item()
+
+			if args.norms:
+				print('norms', norms)
+				writer.add_scalar('/normsMNIST', norms, nc)
+				nc += 1
+			if args.cos:
+				if old_grads is None:
+					old_grads = get_flat_grads(model)
+				else:
+					new_grads = get_flat_grads(model)
+					cos_val = ((old_grads * new_grads) / (torch.norm(old_grads) * torch.norm(new_grads))).sum().item()
+					old_grads = new_grads.clone()
+					print('cos val', cos_val)
+					writer.add_scalar('/cosMNIST', cos_val, cc)
+					cc += 1
 			optimizer.step()
 
 			loss_val = loss.item()
 			print(z, loss_val)
-			writer.add_scalar('/pMNIST', loss_val, ctr)
+			writer.add_scalar('/MNIST', loss_val, ctr)
 			ctr += 1
 
 		t_loss, accuracy = test_model(model, criterion, order)
 		best_acc = max(best_acc, accuracy)
 		print('best accuracy ' + str(best_acc))
-		writer.add_scalar('/accpMNIST', accuracy, epoch)
+		writer.add_scalar('/accMNIST', accuracy, epoch)
 
 device = torch.device('cuda')
 net = Net(inp_size, hid_size, out_size).to(device)

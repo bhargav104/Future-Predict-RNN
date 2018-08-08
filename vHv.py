@@ -25,7 +25,6 @@ def get_vHv(model, direc, dataset, train_size, batch_size, args, criterion, T, N
         sq_len = T + 20
         loss = 0
 
-        p_full = args.p_full
         val = np.random.random(size=1)[0]
         # 0.8 0.6 0.4 0.2
         for i in range(sq_len):
